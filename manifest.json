@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Webpage RAG Assistant",
+  "version": "1.0",
+  "description": "Embed the current page and answer your questions in‑context.",
+  "permissions": ["contextMenus", "scripting", "storage", "activeTab"],
+  "host_permissions": ["https://generativelanguage.googleapis.com/*"],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "dist/background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content.js"],
+      "type": "module"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["dist/**", "dist/**/*.wasm", "model_files/*", "wasm/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "object-src 'self'; default-src 'self' 'wasm-unsafe-eval'"
+  }
+}
