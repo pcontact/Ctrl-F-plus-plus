@@ -3,6 +3,10 @@ import { positionPanelAtPoint, DebugConsole} from "./utils/helpers.js"
 import { Embedder } from "./lib/embedder.js";
 import { VectorStore } from "./lib/vectorstore.js";
 import { createGeminiRouter } from "./utils/universal_gemini_router.js"
+import Mark from "mark.js";
+
+const context = document.body;
+const markInstance = new Mark(context);
 
 class StatusClass {
   #status;
@@ -129,6 +133,10 @@ export function injectCSS() {
   const s = document.createElement('style');
   s.id = cssId;
   s.textContent = `
+  .highlight {
+    background-color: yellow;
+  }
+
   /* Isolation reset for the widget */
   #${rootContainerId}, #${rootContainerId} * { 
     all: unset; 
@@ -365,7 +373,7 @@ export function createResultsFromList(list = []) {
   const container = document.createElement('div');
   container.className = `${PREFIX}-results-container`;
   list.forEach(item => {
-    debugConsole.log(item)
+    //debugConsole.log(item)
     const r = document.createElement('div');
     r.className = `${PREFIX}-result`;
     // id and data-id set
@@ -526,6 +534,55 @@ export function init(){
     const rootContainer = document.getElementById(rootContainerId)
     rootContainer.appendChild(result)
   })
+
+  window.addEventListener("result-click", (e)=>{
+    const searchText = e.detail.text;
+
+    const matches = [];
+
+    markInstance.mark(searchText, {
+      element: "span",
+      className: "highlight",
+      separateWordSearch: false,
+      acrossElements: true,
+
+      // Use exclude to skip entire containers
+      exclude: [
+        "#gswSearchContainer",   // skip by ID
+        "[class^='gsw']"         // skip any element whose class begins with "gsw"
+      ],
+
+      each: function(node) {
+        matches.push(node);
+      },
+
+      done: function(totalMatches) {
+        console.log("Total matches (excluding gsw nodes):", totalMatches);
+        console.log("Matched nodes:", matches);
+        if (matches.length > 0) {
+          const first = matches[0];
+          console.log("First match element:", first);
+          console.log("OffsetTop:", first.offsetTop);
+
+          // Give the browser a moment to render
+          setTimeout(() => {
+            first.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 50);  
+        }
+      },
+
+      noMatch: function(term) {
+        console.log("No matches for:", term);
+      },
+
+      debug: false
+    });
+    
+  })
+
+  window.addEventListener("search-close", ()=>{
+    removeHighlights()
+  })
 }
 
   
@@ -537,6 +594,8 @@ async function performSearch(query){
     indexPage()
     return
   }
+  // remove previous highlights:
+  removeHighlights()
 
   // embed the query
   statusClass.setStatus(StatusClass.STATUS_DICT.searching)
@@ -665,4 +724,14 @@ async function indexPage() {
 function updateStatusEl(status){
   if(statusBar.style.display == "none") statusBar.style.display = "block"
   statusBar.textContent = status + "..."
+}
+
+function removeHighlights() {
+  markInstance.unmark({
+    element: "span",
+    className: "highlight",
+    done: function() {
+      console.log("Removed only the highlight spans.");
+    }
+  });
 }

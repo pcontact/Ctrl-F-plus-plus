@@ -1,0 +1,32 @@
+{
+  "name": "toneshift",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000T\u0000o\u0000n\u0000e\u0000S\u0000h\u0000i\u0000f\u0000t\u0000\r\u0000 \u0000",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node build.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pcontact/ToneShift.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/pcontact/ToneShift/issues"
+  },
+  "homepage": "https://github.com/pcontact/ToneShift#readme",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@xenova/transformers": "^2.17.2",
+    "findandreplacedomtext": "^0.4.6",
+    "mark.js": "^8.11.1",
+    "rollup": "^4.52.4",
+    "voy-search": "^0.6.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  }
+}
