@@ -1,40 +1,148 @@
-import { Embedder } from "./lib/embedder.js";
-import { VectorStore } from "./lib/vectorstore.js";
+document.addEventListener("DOMContentLoaded", async () => {
+  const openBtn = document.getElementById("open");
+  const saveBtn = document.getElementById("saveKey");
+  const apiKeyInput = document.getElementById("apiKeyInput");
+  const toggleKeyBtn = document.getElementById("toggleKey");
+  const statusEl = document.getElementById("status");
+  const geminiCloudModelToggle = document.getElementById("ts-gemini-cloud-model-toggle")
+  const generalControls = document.getElementById('ts-general-controls');
 
-const embedder = new Embedder()
-const vectorStore = new VectorStore()
-document.getElementById("askBtn").addEventListener("click", async () => {
-  const query = document.getElementById("query").value.trim();
-  if (!query) return;
+  const preserveFormattingCheckbox = document.getElementById("ts-preserve-formatting")
 
-  // embed the query
-  console.log("Query: ", query)
-  const [queryEmbedding] = await embedder.embedTexts ([query]);
-  console.log("Embedding: ", queryEmbedding)
-  // retrieve top chunks
-  const neighbours = await vectorStore.queryIndex(queryEmbedding, 3);
-  console.log(neighbours)
+  // Load state from storage
+  const data = await chrome.storage.local.get(["sidebarVisible", "apiKey"]);
 
-  // Prepare prompt for your LLM integration
-  const contextText = neighbours.map(n => n.text).join("\n---\n");
+  // Set settings button label
+  openBtn.textContent = data.sidebarVisible ? "Hide Settings" : "Show Settings";
+  // Help menu toggle with smooth animation
+  const helpButton = document.getElementById('helpButton');
+  const helpMenu = document.getElementById('helpMenu');
 
-  // Example: call your LLM API with prompt including contextText + query
-  const prompt = `Context from webpage:\n${contextText}\n\nQuestion: ${query}\nAnswer:`;
+  helpButton.addEventListener('click', () => {
+    helpMenu.classList.toggle('show');
+  });
 
-  // (You need to implement sendToLLM and handle response)
-  const answer = await sendToLLM(prompt);
+  // Load saved API key
+  if (data.apiKey) {
+    apiKeyInput.value = data.apiKey;
+    statusEl.textContent = "API Key loaded.";
+    setTimeout(() => (statusEl.textContent = ""), 2000);
+  }
 
-  // Display results
-  const resultsDiv = document.getElementById("results");
-  resultsDiv.innerHTML = `
-    <h4>Answer:</h4><p>${answer}</p>
-    <h4>Retrieved passages:</h4>
-    <ul>
-      ${neighbours.map(n => `<li>${n.text} (score: ${n.score ? n.score.toFixed(4) : "N/A"})</li>`).join("")}
-    </ul>
-  `;
+  // Save API key
+  saveBtn.addEventListener("click", async () => {
+    const key = apiKeyInput.value.trim();
+    if (!key) {
+      statusEl.textContent = "⚠️ Please enter a valid API key.";
+      return;
+    }
+    await chrome.storage.local.set({ apiKey: key });
+    const t = saveBtn.textContent
+    saveBtn.textContent = "API Key saved.";
+    saveBtn.disabled = true
+    saveBtn.style.color = "#64bb00ff"
+    setTimeout(() => {saveBtn.textContent = t; saveBtn.disabled=false; saveBtn.style.color="white"}, 2000);
+  });
+
+  // Toggle API key visibility
+  toggleKeyBtn.addEventListener("click", () => {
+    if (apiKeyInput.type === "password") {
+      apiKeyInput.type = "text";
+      toggleKeyBtn.textContent = "hide";
+    } else {
+      apiKeyInput.type = "password";
+      toggleKeyBtn.textContent = "show";
+    }
+  });
+
+  // Sidebar toggle
+  openBtn.addEventListener("click", async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  const nextState = openBtn.textContent === "Show Settings"; // true = want to show
+
+    chrome.tabs.sendMessage(tab.id, { action: "toggleSidebar", visible: nextState });
+
+    await chrome.storage.local.set({ sidebarVisible: nextState });
+  openBtn.textContent = nextState ? "Hide Settings" : "Show Settings";
+  });
+
+  geminiCloudModelToggle.addEventListener('change', (e) => {
+    e.stopPropagation();
+    const useCloudModel = geminiCloudModelToggle.checked;
+    chrome.storage.local.set({  useCloudModel }, () => {
+      console.log("Set useCloudModel to", useCloudModel);
+      chrome.runtime.sendMessage({ action: 'updateGeminiModelPreference', useCloudModel });
+      updateGeneralControlState(geminiCloudModelToggle.checked)
+    });
+  });
+
+  function updateGeneralControlState(state) {
+    const enabled = state;
+    if (enabled) {
+      generalControls.classList.remove('inactive');
+      apiKeyInput.disabled = false;
+      saveBtn.disabled = false;
+    } else {
+      generalControls.classList.add('inactive');
+      apiKeyInput.disabled = true;
+      saveBtn.disabled = true;
+    }
+  }
+
+    // Add a change event listener to the checkbox
+  preserveFormattingCheckbox?.addEventListener('change', (event) => {
+      // Get the checked state of the checkbox
+      const rewriteWithFormat = event.target.checked;
+
+      // Use chrome.storage.local.set() to save the value
+      chrome.storage.local.set({ rewriteWithFormat: rewriteWithFormat }, () => {
+          if (chrome.runtime.lastError) {
+              console.error("Error setting withFormatting:", chrome.runtime.lastError);
+          } else {
+              console.log("rewriteWithFormat value is now:", rewriteWithFormat);
+          }
+      });
+  });
+
+  const showFloatingCheckbox = document.getElementById('ts-show-floating');
+  if (showFloatingCheckbox) {
+    // Load saved preference; default to true
+    chrome.storage.local.get('showFloatingOnHighlight', (data) => {
+      if (data.showFloatingOnHighlight === undefined || data.showFloatingOnHighlight === null) {
+        chrome.storage.local.set({ showFloatingOnHighlight:true })
+        showFloatingCheckbox.checked = true;
+      } else {
+        showFloatingCheckbox.checked = data.showFloatingOnHighlight;
+      }
+    });
+
+    showFloatingCheckbox.addEventListener('change', (e) => {
+      const enabled = !!e.target.checked;
+      chrome.storage.local.set({ showFloatingOnHighlight: enabled }, () => {
+        if (chrome.runtime.lastError) console.error('Error saving showFloatingOnHighlight', chrome.runtime.lastError);
+        console.log('showFloatingOnHighlight set to', enabled);
+      });
+    });
+  }
+
+  if(preserveFormattingCheckbox){
+    chrome.storage.local.get('rewriteWithFormat', (data) => {
+        if (data.rewriteWithFormat !== undefined) {
+            preserveFormattingCheckbox.checked = data.rewriteWithFormat;
+        }else{
+          chrome.storage.set({rewriteWithFormat:false})
+        }
+    });
+  }
+
+  if(geminiCloudModelToggle){
+    chrome.storage.local.get("useCloudModel", (data)=>{
+      console.log(data)
+      if (data.useCloudModel !== undefined) {
+        geminiCloudModelToggle.checked = data.useCloudModel;
+        updateGeneralControlState(data.useCloudModel)
+      }
+    });
+  }
 });
-
-function sendToLLM(prompt){
-  console.log(prompt)
-}

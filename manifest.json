@@ -26,11 +26,18 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["dist/**", "dist/**/*.wasm", "model_files/*", "wasm/*"],
+      "resources": ["dist/**",
+       "dist/**/*.wasm",
+       "model_files/*",
+       "wasm/*",
+      "local_ai/gemini_local.js",
+      "src/worker.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ],
   "content_security_policy": {
-    "extension_pages": "object-src 'self'; default-src 'self' 'wasm-unsafe-eval'"
+    "extension_pages": "default-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com; object-src 'self';"
   }
+
 }

@@ -354,18 +354,46 @@ export function showUseCloudeModelOption(parentNode, callback){
   });
 }
 
-export class DebugConsole{
-  constructor(debugMode){this.DEBUG_MODE = debugMode || false}
+export class DebugConsole {
+  constructor(debugMode) {
+    this.DEBUG_MODE = !!debugMode;
+  }
+
+  _getCallerInfo() {
+    try {
+      const err = new Error();
+      const stackLines = err.stack?.split("\n");
+      // stackLines[0] = "Error"
+      // stackLines[1] = this function (_getCallerInfo)
+      // stackLines[2] = the caller (what we want)
+      const callerLine = stackLines?.[3] || stackLines?.[2] || "";
+      // Extract file name + line + column
+      const match = callerLine.match(/(?:at\s+)?(?:.*\()?(.+:\d+:\d+)\)?$/);
+      return match ? match[1] : "unknown:0";
+    } catch {
+      return "unknown:0";
+    }
+  }
+
+  _print(method, prefix, args) {
+    if (!this.DEBUG_MODE) return;
+    const caller = this._getCallerInfo();
+    console[method](`${prefix} [${caller}]`, ...args);
+  }
+
   log(...args) {
-    if (this.DEBUG_MODE) console.log("[Debug]", ...args);
+    this._print("log", "[DEBUG]", args);
   }
-  error(...args){
-    if(this.DEBUG_MODE) console.error("[DEBUG]", ...args)
+
+  warn(...args) {
+    this._print("warn", "[DEBUG]", args);
   }
-  warn(...args){
-  if(this.DEBUG_MODE) console.warn("[DEBUG]", ...args)
+
+  error(...args) {
+    this._print("error", "[DEBUG]", args);
+  }
 }
-}
+
 
 export async function silentImport(url){
   const k = (await import(url)).default

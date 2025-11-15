@@ -1,7 +1,119 @@
-// Exports a small API for injection and result management. Styling is isolated via prefixing
-// and a single <style> element injected into head. Events are emitted from the root container
-// as CustomEvents: 'search-key', 'search-enter', 'result-click'.
-import { positionPanelAtPoint} from "./utils/helpers.js"
+
+import { positionPanelAtPoint, DebugConsole} from "./utils/helpers.js"
+import { Embedder } from "./lib/embedder.js";
+import { VectorStore } from "./lib/vectorstore.js";
+import { createGeminiRouter } from "./utils/universal_gemini_router.js"
+
+class StatusClass {
+  #status;
+
+  constructor() {
+    this.#status = StatusClass.STATUS_DICT.idle;
+
+    // listeners for direct status changes
+    this._statusListeners = {};
+
+    // listeners for status_log changes
+    this._logListeners = {};
+
+    // listeners for status observer
+    this._statusObserverListeners = []
+
+    this.STATUS_LOG = {
+      extract: false,
+      embed: false,
+      buildIndex: false,
+      pageIndexed: false
+    };
+  }
+
+  static STATUS_DICT = {
+    idle: "idle",
+    extracting: "extracting",
+    embedding: "embedding",
+    searching: "searching",
+    filtering: "filtering"
+  };
+
+  static STATUS_LOG_DICT = {
+    extract: "extract",
+    embed: "embed",
+    buildIndex: "buildIndex",
+    pageIndexed: "pageIndexed"
+  };
+
+  setStatus(status) {
+    this.#status = status;
+    debugConsole.log("Setting status: ", status)
+
+    // fire listeners attached to the given status value
+    const listeners = this._statusListeners[status];
+    if (listeners) {
+        debugConsole.log("Calling listeners: ", listeners,  "Status: ", status)
+
+      for (const { fn, arg } of listeners) fn(arg);
+    }
+
+    //fire observers
+    this._statusObserverListeners.forEach(fn =>{
+      fn(status)
+    })
+  }
+
+  getStatus() {
+    return this.#status;
+  }
+
+  registerForStatusChange(fn, arg, status) {
+    if (!this._statusListeners[status]) {
+      this._statusListeners[status] = [];
+    }
+    debugConsole.log("Regitering status change: fn", fn, " arg:", arg, " status:", status)
+    this._statusListeners[status].push({ fn, arg });
+  }
+
+  // -------- STATUS_LOG support --------
+
+  setLogFlag(flag, value) {
+    if (!(flag in this.STATUS_LOG)) return;
+
+    this.STATUS_LOG[flag] = value;
+    debugConsole.log("Setting flag: ", flag)
+
+    // fire log listeners attached to this log flag
+    const listeners = this._logListeners[flag];
+    if (listeners) {
+      debugConsole.log("Calling listeners: ", listeners,  "Flag: ", flag)
+
+      for (const { fn, arg } of listeners) fn(arg);
+    }
+  }
+
+  registerForLogChange(flag, fn, arg) {
+    if (!this._logListeners[flag]) {
+      this._logListeners[flag] = [];
+    }
+      debugConsole.log("Registering for log change: fn", fn, " arg:", arg, " flag:", flag)
+
+    this._logListeners[flag].push({ fn, arg });
+
+  }
+
+  registerStatusChangeObserver(fn) {
+    this._statusObserverListeners.push(fn);
+  }
+}
+
+const statusClass = new StatusClass()
+statusClass.registerStatusChangeObserver(updateStatusEl)
+
+const geminiRouter = createGeminiRouter()
+
+const DEBUG_MODE = true
+const debugConsole = new DebugConsole(DEBUG_MODE)
+
+const embedder = new Embedder()
+const vectorStore = new VectorStore()
 
 const PREFIX = 'gsw'; // short prefix to avoid collisions (Gideon Search Widget)
 let widgetExists = false;
@@ -9,6 +121,7 @@ let resultsContainerRef = null;
 let rootContainerId = `${PREFIX}SearchContainer`;
 let cssId = `${PREFIX}Styles`;
 let lastMousePosition = { x: 0, y: 0 };
+let statusBar = null
 
 // ----------------- CSS Injection -----------------
 export function injectCSS() {
@@ -135,8 +248,38 @@ export function injectCSS() {
     }
   }
 
+  #${rootContainerId} .${PREFIX}-status-bar {
+    display: block;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid;
+    background-color: var(--status-bg, #f0f0f0);
+    color: var(--status-color, #111);
+    box-shadow: var(--status-shadow, none);
+    transition: background 200ms ease, color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  }
+
+  /* Light theme */
+  @media (prefers-color-scheme: light) {
+    #${rootContainerId} .${PREFIX}-status-bar {
+      --status-bg: #fafafa;           /* soft, slightly warm */
+      --status-color: #111;           /* high contrast text */
+      --status-shadow: 0 1px 3px rgba(0,0,0,0.08); /* subtle elevation */
+      border-color: #ddd;             /* lighter, soft border */
+    }
+  }
+
   /* --- Dark theme --- */
   @media (prefers-color-scheme: dark) {
+    #${rootContainerId} .${PREFIX}-status-bar {
+      --status-bg: #1e2026;           /* deep, soft dark */
+      --status-color: #e6eef8;        /* readable light text */
+      --status-shadow: 0 1px 3px rgba(0,0,0,0.5); /* subtle dark shadow */
+      border-color: #333;             /* muted border for dark */
+    }
+
     #${rootContainerId} .${PREFIX}-search-bar { 
       background: #0f1113; 
       color: #e6eef8; 
@@ -171,13 +314,19 @@ export function injectHTML(container = document.body) {
 
   // wrap search bar and close button in a flex container
   root.innerHTML = `
+    <div
     <div class="${PREFIX}-search-bar-container">
       <textarea class="${PREFIX}-search-bar" placeholder="What are you looking for? Type 5 or more words that make up your query to continue" rows="3"></textarea>
       <button class="${PREFIX}-close-btn" title="Close">&times;</button>
     </div>
   `;
 
+  statusBar = document.createElement("div");
+  statusBar.className = `${PREFIX}-status-bar`
+  statusBar.textContent = "searching"
+
   container.appendChild(root);
+  root.appendChild(statusBar)
   widgetExists = true;
 
   const textarea = root.querySelector(`.${PREFIX}-search-bar`);
@@ -215,9 +364,8 @@ export function injectHTML(container = document.body) {
 export function createResultsFromList(list = []) {
   const container = document.createElement('div');
   container.className = `${PREFIX}-results-container`;
-
   list.forEach(item => {
-    console.log(item)
+    debugConsole.log(item)
     const r = document.createElement('div');
     r.className = `${PREFIX}-result`;
     // id and data-id set
@@ -285,6 +433,7 @@ export function inject(container = document.body, options={position:"mouse"}) {
   if (options.position === 'mouse') {
     positionPanelAtPoint(rootEl, lastMousePosition);
   }
+  statusBar.style.display = "none"
   return rootEl;
 }
 
@@ -337,7 +486,7 @@ export default {
 };
 
 export function init(){
-  //console.log("search module ready")
+  //debugConsole.log("search module ready")
   window.addEventListener('mousemove', (e) => {
     lastMousePosition = { x: e.clientX, y: e.clientY };
   }, { passive: true });
@@ -345,33 +494,175 @@ export function init(){
   let keyStack = []
   let timerId = null
   window.addEventListener("keydown", (e)=>{
-    //console.log(e)
+    //debugConsole.log(e)
     keyStack.push(e.key)
     if(keyStack.length > 3)keyStack.slice(keyStack.length - 3)
-    //console.log(keyStack.length)
+    //debugConsole.log(keyStack.length)
     if(keyStack.length == 3 && keyStack[0] == "Control" && keyStack[1] == "Shift" && keyStack[2].toLowerCase() == "f"){
       e.stopPropagation()
       inject();
       keyStack = []
-      //console.log(keyStack)
+      //debugConsole.log(keyStack)
       return
     }
     //if(timerId != null) clearTimeout(timerId)
     timerId = setTimeout(() => {
       keyStack.shift()
-      //console.log(keyStack)
+      //debugConsole.log(keyStack)
     }, 1000);
   })
 
   window.addEventListener('search-key', (e)=>{
-    
   })
 
-  window.addEventListener("search-enter", (e)=>{
+  window.addEventListener("search-enter", async (e)=>{
+    const query = getSearchValue()
+    await performSearch(query)
+    
     return
-    console.log("search enter presed")
+    debugConsole.log("search enter presed")
+
     const result = createResultsFromList([{id:"1", text:"hello helem=n"},{id:"2", text:"hello james"}])
     const rootContainer = document.getElementById(rootContainerId)
     rootContainer.appendChild(result)
   })
+}
+
+  
+async function performSearch(query){
+  if (!query) return;
+  if(!statusClass.STATUS_LOG.pageIndexed){
+    statusClass.registerForLogChange(StatusClass.STATUS_LOG_DICT.pageIndexed, performSearch, query)
+    statusClass.registerForStatusChange((e)=>{console.log(e.toUpperCase())}, "status change", StatusClass.STATUS_DICT.embedding)
+    indexPage()
+    return
+  }
+
+  // embed the query
+  statusClass.setStatus(StatusClass.STATUS_DICT.searching)
+  debugConsole.log("Query: ", query)
+  const [queryEmbedding] = await embedder.embedTexts ([query]);
+  //debugConsole.log("Query Embedding: ", queryEmbedding)
+
+  // retrieve top chunks
+  const neighbours = await vectorStore.queryIndex(queryEmbedding, 3);
+  debugConsole.log(neighbours)
+
+  // (need to implement sendToLLM and handle response)
+  statusClass.setStatus(StatusClass.STATUS_DICT.filtering)
+  //await sendToLLM(query, neighbours)
+  statusBar.style.display = "none"
+  populateResults(neighbours)
+
+}
+
+async function sendToLLM(query, results){
+  const prompt = `
+  You are an expert assistant. Your task is to analyze the user's query and the provided top results, and respond **only** in a strict format. Follow these steps exactly:
+
+  1. Identify which results directly answer the user query.
+    - A result **directly answers** the query if it contains explicit instructions, facts, or steps that fully satisfy the query.
+    - Include partial matches **only if they provide significant context directly related to the query** (e.g., mention key entities or actions from the query). Do not include irrelevant, general, or metadata content.
+
+  2. Respond strictly with **two sections in this order**:
+
+  ## results
+  - A JSON array of the IDs of all results that meet the criteria above. Example:
+  ["chunk-1", "chunk-3"]
+
+  ## insight
+  - A single, concise, one-sentence insight. Follow these rules:
+    * If one or more results directly answer the query, write: "Relevant results matching the query were found in the top results."
+    * If no results directly answer the query, write: "No relevant results matching the query were found in the top results."
+    * If only partial matches exist, write: "Only partial context was found; no direct answers were identified."
+
+  **Important rules:**
+  - Only include the two sections (## results and ## insight) in your output. No extra commentary or text.
+  - Ensure JSON is valid, parsable, and properly quoted.
+  - Do not infer answers beyond what is explicitly stated in the results.
+
+  **User query format:**
+  "This can be any user query"
+
+  **Result format:**
+  [
+    { "id": "chunk-1", "text": "some text", "metadata": { "url": "...", "index": 1 } },
+    ...
+  ]
+
+  **Example:**
+
+  User query:
+  "How do I save my work in Krita?"
+
+  Top 3 results:
+  [
+    { "id": "chunk-2", "text": "Click on File from the application menu at the top.", "metadata": { "url": "...", "index": 2 } },
+    { "id": "chunk-15", "text": "© Copyright licensed under the GNU Free Documentation License.", "metadata": { "url": "...", "index": 15 } },
+    { "id": "chunk-12", "text": "The save option is in the top-menu of File, then Save. Select folder and file format.", "metadata": { "url": "...", "index": 12 } }
+  ]
+
+  Expected output:
+  ## results
+  ["chunk-2", "chunk-12"]
+
+  ## insight
+  "Relevant results matching the query were found in the top results."
+
+  ---
+
+  User query:
+  "${query}"
+
+  Top ${results.length} results:
+  ${JSON.stringify(results)}
+
+  Respond now in the required format, strictly following the rules above.
+  `;
+
+  //debugConsole.log(prompt)
+  //return
+  const result = await geminiRouter.ask({
+    text: prompt,
+    history:[],
+    persistSession:false
+  })
+  console.log("rESULT:", result)
+}
+
+
+async function extractChunksFromPage() {
+  statusClass.setStatus(StatusClass.STATUS_DICT.extracting)
+  const paragraphs = Array.from(document.querySelectorAll("p"))
+    .map(p => p.innerText.trim())
+    .filter(t => t.length > 50);
+  const chunks = paragraphs.map((text,i) => ({
+    id: `chunk‑${i}`,
+    text,
+    metadata: { url: window.location.href, index: i }
+  }));
+  statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.extract, true)
+  return chunks;
+}
+
+async function indexPage() {
+  if(statusClass.STATUS_LOG.pageIndexed) return // only index if pageIndexed is false
+
+  const chunks = await extractChunksFromPage();
+  const sentences = chunks.map(c => c.text);
+  //console.log("sentences: ", sentences)
+
+  statusClass.setStatus(StatusClass.STATUS_DICT.embedding)
+  const embeddings = await embedder.embedTexts(sentences);
+  statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.embed, true)
+
+  //console.log(embeddings)
+  vectorStore.buildIndex(chunks, embeddings);
+  statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.buildIndex, true)
+  statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.pageIndexed, true)
+}
+
+function updateStatusEl(status){
+  if(statusBar.style.display == "none") statusBar.style.display = "block"
+  statusBar.textContent = status + "..."
 }

@@ -1,15 +1,62 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>Ask about this page</title>
-</head>
-<body>
-  <h3>Ask about this page</h3>
-  <textarea id="query" rows="3"></textarea>
-  <button id="askBtn">Ask</button>
-  <div id="results"></div>
+  <head>
+    <meta charset="UTF-8">
+    <title>Control-Find ++</title>
+    <!-- Move all styles to popup.css -->
+    <link rel="stylesheet" href="./popup.css">
+  </head>
+  <body>
+    <h2>Ctrl-F ++</h2>
+    <div class="tooltip-container" style="display:none;">
+      <button id="open">Show Settings</button>
+      <span class="tooltip-text" role="tooltip">
+        Toggles the ToneShift sidebar/settings panel on the current page.
+      </span>
+    </div>
 
-  <script type="module" src="../dist/popup.js"></script>
-</body>
+    <div class="ts-toggle">
+      <input type="checkbox" id="ts-show-floating" />
+      <label for="ts-show-floating">
+        Refine Text buttons appear when you highlight 5+ words
+      </label>
+    </div>
+
+    <hr>
+
+    <div id="ts-general-controls">
+      <label class="toggle-label">
+        Use Cloud Gemini Model
+        <input type="checkbox" id="ts-gemini-cloud-model-toggle">
+      </label>
+
+      <div class="ts-settings-body">
+        <h4>Gemini API Key</h4>
+        <div class="input-group">
+          <input type="password" id="apiKeyInput" placeholder="Enter Gemini API Key" />
+          <button id="toggleKey">show</button>
+        </div>
+        <button id="saveKey">Save Key</button>
+        <p id="status"></p>
+      </div>
+    </div>
+
+    <hr>
+
+    <div>
+      <button id="helpButton">Help ?</button>
+      <div id="helpMenu">
+        <p><strong>ToneShift Help</strong></p>
+        <ul>
+          <li><strong>Refine Text:</strong> Shows buttons when you highlight 5 or more words.</li>
+          <li><strong>Use Cloud Gemini Model:</strong> Toggle between local and cloud AI models.</li>
+          <li><strong>API Key:</strong> Enter your Gemini API key and click "Save Key" to store it securely.</li>
+        </ul>
+        <p>You can hide this menu by clicking "Help ?" again.</p>
+      </div>
+    </div>
+
+    <!-- Ensure you're loading the built script (dist/popup.js) -->
+    <script type="module" src="./popup.js"></script>
+  </body>
 </html>
