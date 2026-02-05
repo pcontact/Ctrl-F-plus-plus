@@ -14,13 +14,13 @@
     }
   },
   "background": {
-    "service_worker": "dist/background/index.js",
+    "service_worker": "dist/src/background/index.js",
     "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["dist/content.js"],
+      "js": ["dist/src/content.js"],
       "type": "module"
     }
   ],
@@ -31,10 +31,7 @@
         "dist/**/*.wasm",
         "model_files/*",
         "wasm/*",
-        "local_ai/gemini_local.js",
-        "src/searchWorker.js",
-        "src/lib/*.js",
-        "src/utils/*.js"
+        "local_ai/gemini_local.js"
       ],
       "matches": ["<all_urls>"]
     }

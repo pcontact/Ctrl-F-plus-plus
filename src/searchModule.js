@@ -108,6 +108,7 @@ class StatusClass {
 }
 
 const statusClass = new StatusClass()
+let canShowStatusEl = false;
 statusClass.registerStatusChangeObserver(updateStatusEl)
 
 const geminiRouter = createGeminiRouter()
@@ -508,6 +509,7 @@ export function init(){
       inject();
       focusSearch()
       keyStack = []
+      setTimeout(indexPage, 100);
       //debugConsole.log(keyStack)
       return
     }
@@ -588,6 +590,9 @@ export function init(){
 async function performSearch(query){
   if (!query) return;
   if (!statusClass.STATUS_LOG.pageIndexed) {
+    canShowStatusEl=true;
+    statusBar.style.display = "block";
+    
     statusClass.registerForLogChange(StatusClass.STATUS_LOG_DICT.pageIndexed, performSearch, query);
     statusClass.registerForStatusChange((e) => { console.log(e.toUpperCase()) }, "status change", StatusClass.STATUS_DICT.embedding);
     indexPage();
@@ -597,7 +602,7 @@ async function performSearch(query){
   removeHighlights();
 
   // Send message to background script to perform search
-  chrome.runtime.sendMessage({ type: "PERFORM_SEARCH", payload: { query } });
+  sendMessageToOffscreen("PERFORM_SEARCH", { query });
 }
 
 async function sendToLLM(query, results){
@@ -691,17 +696,20 @@ async function extractChunksFromPage() {
 
 async function indexPage() {
   if(statusClass.STATUS_LOG.pageIndexed) return // only index if pageIndexed is false
+  if(statusClass.getStatus() === StatusClass.STATUS_DICT.embedding || statusClass.getStatus() === StatusClass.STATUS_DICT.extracting) return // already in progress
+
 
   const chunks = await extractChunksFromPage();
   const sentences = chunks.map(c => c.text);
   
   // Send message to background script to index the page
-  chrome.runtime.sendMessage({ type: "INDEX_PAGE", payload: { chunks, sentences } });
+  sendMessageToOffscreen("INDEX_PAGE", { chunks, sentences });
 }
 
 function updateStatusEl(status){
-  if(statusBar.style.display == "none") statusBar.style.display = "block"
   statusBar.textContent = status + "..."
+  if(statusBar.style.display == "none" && canShowStatusEl) 
+    statusBar.style.display = "block";
 }
 
 function removeHighlights() {
@@ -716,6 +724,7 @@ function removeHighlights() {
 
 // Listen for messages from the background script (which forwards from the offscreen document)
 chrome.runtime.onMessage.addListener((message) => {
+  console.log("Main: Received message:", message);
   const { type, status, results, success, error } = message;
 
   switch (type) {
@@ -737,7 +746,8 @@ chrome.runtime.onMessage.addListener((message) => {
         debugConsole.log("Main: Search results received:", results);
         statusBar.style.display = "none";
         populateResults(results);
-        statusClass.setStatus(StatusClass.STATUS_DICT.idle); // Set status back to idle after search
+        //statusClass.setStatus(StatusClass.STATUS_DICT.idle); // Set status back to idle after search
+        
       } else {
         debugConsole.error("Main: Error receiving search results:", error);
       }
@@ -748,4 +758,8 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // Initialize embedder in offscreen document when the module loads
-chrome.runtime.sendMessage({ type: "INIT_EMBEDDER" });
+sendMessageToOffscreen("INIT_EMBEDDER");
+
+function sendMessageToOffscreen(type, payload={}) {  
+  chrome.runtime.sendMessage({ type, payload });
+}

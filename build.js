@@ -39,7 +39,8 @@ async function build() {
     entryPoints: [
       'src/background/index.js',
       'src/content.js',
-      'src/popup.js'
+      'src/popup.js',
+      'offscreenSearchModule.js'
     ],
     bundle: true,
     splitting: true,
@@ -49,7 +50,7 @@ async function build() {
     outdir: outDir,
     target: ['chrome109'],
     logLevel: 'info',
-    external: ['chrome', "silentImport"],
+    external: ['chrome'],
     loader: {
       '.wasm': 'file'
     },
