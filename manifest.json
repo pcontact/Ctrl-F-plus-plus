@@ -32,7 +32,9 @@
         "model_files/*",
         "wasm/*",
         "local_ai/gemini_local.js",
-        "src/searchWorker.js"
+        "src/searchWorker.js",
+        "src/lib/*.js",
+        "src/utils/*.js"
       ],
       "matches": ["<all_urls>"]
     }

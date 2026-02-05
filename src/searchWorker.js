@@ -1,6 +1,6 @@
-import { Embedder } from "../lib/embedder.js";
-import { VectorStore } from "../lib/vectorstore.js";
-import { DebugConsole } from "../utils/helpers.js";
+import { Embedder } from "./lib/embedder.js";
+import { VectorStore } from "./lib/vectorstore.js";
+import { DebugConsole } from "./utils/helpers.js";
 
 const DEBUG_MODE = true;
 const debugConsole = new DebugConsole(DEBUG_MODE);
