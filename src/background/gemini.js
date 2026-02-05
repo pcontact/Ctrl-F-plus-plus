@@ -230,6 +230,7 @@ chrome.runtime.onConnect.addListener((clientPort) => {
 
 
 function createMenu() {
+  return
   // clear old items to avoid duplicates when reloading
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({

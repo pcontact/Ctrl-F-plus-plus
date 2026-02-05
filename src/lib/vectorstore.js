@@ -1,68 +1,121 @@
-import {Voy} from "./voy-search-wrapper.js";
-import { silentImport } from "../utils/helpers";
-
-let wasm = null
-
+import { Voy } from "./voy-search-wrapper.js";
 
 let _voyClient = null;
 let _chunksMetadata = [];
-export class VectorStore{
+
+// Deferred promise state
+let _indexLoadPromise = null;
+let _indexLoadResolver = null;
+
+export class VectorStore {
+  constructor(messenger = null) {
+    this._messenger = messenger; // To be set by consumer for message passing
+    if (this._messenger) {
+      this._messenger({ type: "VECTOR_STORE_READY" });
+    }
+  }
+  /* -----------------------------
+   * Build & persist index
+   * ----------------------------- */
   async buildIndex(chunks, embeddings) {
-    /*
-    if(!false){ // ignore
-      wasm = await silentImport("../wasm/voy-search/voy_search_bg.wasm").then((e)=>{
-        console.log(e)
-      });
-      console.log(wasm)
-      __wbg_set_wasm(wasm)
-    }*/
-    const records = chunks.map((c,i) => ({
+    const records = chunks.map((c, i) => ({
       id: c.id,
-      title: c.id,            // you can map id→title if you like
+      title: c.id,
       url: c.metadata.url,
       embeddings: Array.from(embeddings[i])
     }));
+
     const resource = { embeddings: records };
     _voyClient = new Voy(resource);
-
     _chunksMetadata = chunks;
-    // persist the serialized index (via Voy.serialize()) & metadata
+
     const serialized = _voyClient.serialize();
-    chrome.storage.local.set({
-      vectorIndex: serialized,
-      chunksMeta: _chunksMetadata
-    });
-  }
 
-  async loadIndex() {
-    const data = await new Promise(resolve => {
-      chrome.storage.local.get(["vectorIndex","chunksMeta"], resolve);
-    });
-    if (data.vectorIndex) {
-      _voyClient = Voy.deserialize(data.vectorIndex);
+    if (this._messenger) {
+      this._messenger({
+        type: "SET_VECTOR_INDEX",
+        vectorIndex: serialized,
+        chunksMeta: _chunksMetadata
+      });
     } else {
-      _voyClient = null;
+      console.warn("No messenger set for VectorStore, cannot persist index");
     }
-    _chunksMetadata = data.chunksMeta || [];
   }
 
-  async queryIndex(queryEmbedding, k=3) {
+  /* -----------------------------
+   * Request index via postMessage
+   * ----------------------------- */
+  async loadIndex() {
+    // If a load is already in flight, await it
+    if (_indexLoadPromise) {
+      await _indexLoadPromise;
+      return;
+    }
+
+    _indexLoadPromise = new Promise(resolve => {
+      _indexLoadResolver = resolve;
+    });
+
+    if(this._messenger) {
+      this._messenger({ type: "REQUEST_VECTOR_INDEX" });
+    } else {
+      console.warn("No messenger set for VectorStore, cannot request index");
+      _voyClient = null;
+      _chunksMetadata = [];
+      _indexLoadResolver();
+    }
+
+    await _indexLoadPromise;
+
+    _indexLoadPromise = null;
+    _indexLoadResolver = null;
+  }
+
+  /* -----------------------------
+   * Query (waits until index exists)
+   * ----------------------------- */
+  async queryIndex(queryEmbedding, k = 3) {
     if (!_voyClient) {
       await this.loadIndex();
-      if (!_voyClient) throw new Error("Index not built");
+      if (!_voyClient) {
+        throw new Error("Index not built");
+      }
     }
+
     const queryVec = Float32Array.from(queryEmbedding);
     const result = _voyClient.search(queryVec, k);
-    console.log("Search reult: ", result)
+
     return result.neighbors.map(n => {
       const chunkMeta = _chunksMetadata.find(c => c.id === n.id);
-      console.log("ChunkMeta: ", chunkMeta)
       return {
         id: n.id,
-        text: chunkMeta ? chunkMeta.text : null,
-        metadata: chunkMeta ? chunkMeta.metadata : null,
+        text: chunkMeta?.text ?? null,
+        metadata: chunkMeta?.metadata ?? null,
         score: n.score
       };
     });
-  } 
+  }
+
+  /* -----------------------------
+   * Message handler (MUST be wired)
+   * ----------------------------- */
+  _handleMessage(event) {
+    const msg = event.data;
+
+    if (msg.type === "VECTOR_INDEX_RESPONSE") {
+      if (msg.vectorIndex) {
+        _voyClient = Voy.deserialize(msg.vectorIndex);
+        _chunksMetadata = msg.chunksMeta || [];
+      } else {
+        _voyClient = null;
+        _chunksMetadata = [];
+      }
+
+      if (_indexLoadResolver) {
+        _indexLoadResolver();
+      }
+    }
+  }
+
+
 }

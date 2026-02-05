@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Webpage RAG Assistant",
+  "name": "Ctrl-F +",
   "version": "1.0",
-  "description": "Embed the current page and answer your questions in‑context.",
-  "permissions": ["contextMenus", "scripting", "storage", "activeTab"],
+  "description": "Ctrl-F + is the plus version of Ctrl-F. Allows you use semantic search to find text within a document/webpage.",
+  "permissions": ["contextMenus", "scripting", "storage", "activeTab", "offscreen"],
   "host_permissions": ["https://generativelanguage.googleapis.com/*"],
   "action": {
     "default_popup": "src/popup.html",
@@ -14,24 +14,24 @@
     }
   },
   "background": {
-    "service_worker": "dist/background/index.js",
+    "service_worker": "dist/src/background/index.js",
     "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["dist/content.js"],
+      "js": ["dist/src/content.js"],
       "type": "module"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["dist/**",
-       "dist/**/*.wasm",
-       "model_files/*",
-       "wasm/*",
-      "local_ai/gemini_local.js",
-      "src/worker.js"
+      "resources": [
+        "dist/**",
+        "dist/**/*.wasm",
+        "model_files/*",
+        "wasm/*",
+        "local_ai/gemini_local.js"
       ],
       "matches": ["<all_urls>"]
     }
