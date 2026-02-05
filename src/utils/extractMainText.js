@@ -1,4 +1,4 @@
-class PageTextExtractor{
+export class PageTextExtractor{
   constructor(){
     this.lastTextHash = null; // persistent hash memory
   }

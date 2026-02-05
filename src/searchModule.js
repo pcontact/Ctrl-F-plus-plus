@@ -1,9 +1,8 @@
 
 import { positionPanelAtPoint, DebugConsole} from "./utils/helpers.js"
-import { Embedder } from "./lib/embedder.js";
-import { VectorStore } from "./lib/vectorstore.js";
 import { createGeminiRouter } from "./utils/universal_gemini_router.js"
 import Mark from "mark.js";
+import { PageTextExtractor } from "./utils/extractMainText.js";
 
 const context = document.body;
 const markInstance = new Mark(context);
@@ -116,8 +115,6 @@ const geminiRouter = createGeminiRouter()
 const DEBUG_MODE = true
 const debugConsole = new DebugConsole(DEBUG_MODE)
 
-const embedder = new Embedder()
-const vectorStore = new VectorStore()
 
 const PREFIX = 'gsw'; // short prefix to avoid collisions (Gideon Search Widget)
 let widgetExists = false;
@@ -133,7 +130,7 @@ export function injectCSS() {
   const s = document.createElement('style');
   s.id = cssId;
   s.textContent = `
-  .highlight {
+  .${PREFIX}-highlight {
     background-color: yellow;
   }
 
@@ -509,6 +506,7 @@ export function init(){
     if(keyStack.length == 3 && keyStack[0] == "Control" && keyStack[1] == "Shift" && keyStack[2].toLowerCase() == "f"){
       e.stopPropagation()
       inject();
+      focusSearch()
       keyStack = []
       //debugConsole.log(keyStack)
       return
@@ -521,6 +519,7 @@ export function init(){
   })
 
   window.addEventListener('search-key', (e)=>{
+    removeHighlights()
   })
 
   window.addEventListener("search-enter", async (e)=>{
@@ -542,7 +541,7 @@ export function init(){
 
     markInstance.mark(searchText, {
       element: "span",
-      className: "highlight",
+      className: `${PREFIX}-highlight`,
       separateWordSearch: false,
       acrossElements: true,
 
@@ -577,7 +576,7 @@ export function init(){
 
       debug: false
     });
-    
+
   })
 
   window.addEventListener("search-close", ()=>{
@@ -588,31 +587,17 @@ export function init(){
   
 async function performSearch(query){
   if (!query) return;
-  if(!statusClass.STATUS_LOG.pageIndexed){
-    statusClass.registerForLogChange(StatusClass.STATUS_LOG_DICT.pageIndexed, performSearch, query)
-    statusClass.registerForStatusChange((e)=>{console.log(e.toUpperCase())}, "status change", StatusClass.STATUS_DICT.embedding)
-    indexPage()
-    return
+  if (!statusClass.STATUS_LOG.pageIndexed) {
+    statusClass.registerForLogChange(StatusClass.STATUS_LOG_DICT.pageIndexed, performSearch, query);
+    statusClass.registerForStatusChange((e) => { console.log(e.toUpperCase()) }, "status change", StatusClass.STATUS_DICT.embedding);
+    indexPage();
+    return;
   }
   // remove previous highlights:
-  removeHighlights()
+  removeHighlights();
 
-  // embed the query
-  statusClass.setStatus(StatusClass.STATUS_DICT.searching)
-  debugConsole.log("Query: ", query)
-  const [queryEmbedding] = await embedder.embedTexts ([query]);
-  //debugConsole.log("Query Embedding: ", queryEmbedding)
-
-  // retrieve top chunks
-  const neighbours = await vectorStore.queryIndex(queryEmbedding, 3);
-  debugConsole.log(neighbours)
-
-  // (need to implement sendToLLM and handle response)
-  statusClass.setStatus(StatusClass.STATUS_DICT.filtering)
-  //await sendToLLM(query, neighbours)
-  statusBar.style.display = "none"
-  populateResults(neighbours)
-
+  // Send message to background script to perform search
+  chrome.runtime.sendMessage({ type: "PERFORM_SEARCH", payload: { query } });
 }
 
 async function sendToLLM(query, results){
@@ -709,16 +694,9 @@ async function indexPage() {
 
   const chunks = await extractChunksFromPage();
   const sentences = chunks.map(c => c.text);
-  //console.log("sentences: ", sentences)
-
-  statusClass.setStatus(StatusClass.STATUS_DICT.embedding)
-  const embeddings = await embedder.embedTexts(sentences);
-  statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.embed, true)
-
-  //console.log(embeddings)
-  vectorStore.buildIndex(chunks, embeddings);
-  statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.buildIndex, true)
-  statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.pageIndexed, true)
+  
+  // Send message to background script to index the page
+  chrome.runtime.sendMessage({ type: "INDEX_PAGE", payload: { chunks, sentences } });
 }
 
 function updateStatusEl(status){
@@ -729,9 +707,45 @@ function updateStatusEl(status){
 function removeHighlights() {
   markInstance.unmark({
     element: "span",
-    className: "highlight",
+    className: `${PREFIX}-highlight`,
     done: function() {
       console.log("Removed only the highlight spans.");
     }
   });
 }
+
+// Listen for messages from the background script (which forwards from the offscreen document)
+chrome.runtime.onMessage.addListener((message) => {
+  const { type, status, results, success, error } = message;
+
+  switch (type) {
+    case "STATUS_UPDATE":
+      statusClass.setStatus(status);
+      break;
+    case "PAGE_INDEXED":
+      if (success) {
+        statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.embed, true);
+        statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.buildIndex, true);
+        statusClass.setLogFlag(StatusClass.STATUS_LOG_DICT.pageIndexed, true);
+        debugConsole.log("Main: Page indexed successfully.");
+      } else {
+        debugConsole.error("Main: Page indexing failed:", error);
+      }
+      break;
+    case "SEARCH_RESULTS":
+      if (results) {
+        debugConsole.log("Main: Search results received:", results);
+        statusBar.style.display = "none";
+        populateResults(results);
+        statusClass.setStatus(StatusClass.STATUS_DICT.idle); // Set status back to idle after search
+      } else {
+        debugConsole.error("Main: Error receiving search results:", error);
+      }
+      break;
+    default:
+      debugConsole.warn("Main: Unknown message type from background:", type);
+  }
+});
+
+// Initialize embedder in offscreen document when the module loads
+chrome.runtime.sendMessage({ type: "INIT_EMBEDDER" });

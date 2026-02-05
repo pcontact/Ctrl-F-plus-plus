@@ -1,5 +1,4 @@
 import {Voy} from "./voy-search-wrapper.js";
-import { silentImport } from "../utils/helpers";
 
 let wasm = null
 
@@ -8,14 +7,6 @@ let _voyClient = null;
 let _chunksMetadata = [];
 export class VectorStore{
   async buildIndex(chunks, embeddings) {
-    /*
-    if(!false){ // ignore
-      wasm = await silentImport("../wasm/voy-search/voy_search_bg.wasm").then((e)=>{
-        console.log(e)
-      });
-      console.log(wasm)
-      __wbg_set_wasm(wasm)
-    }*/
     const records = chunks.map((c,i) => ({
       id: c.id,
       title: c.id,            // you can map id→title if you like
